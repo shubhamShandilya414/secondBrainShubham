@@ -219,12 +219,12 @@ with tab_meeting:
             selected_quick_slot = quick_slots[quick_slot_labels.index(slot_label)][1]
             st.caption("These are local-time slots starting from the next available 2-minute boundary.")
         else:
-            join_date = st.date_input("Join date", value=_now_local().date())
-            join_clock = st.time_input(
-                "Join time",
-                value=(_now_local() + dt.timedelta(minutes=30)).time().replace(second=0, microsecond=0),
+            join_time_input = st.text_input(
+                "Meeting time",
+                value=(_now_local() + dt.timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M"),
+                placeholder="2026-04-20 18:30",
             )
-            st.caption(f"This uses {_app_timezone().key}.")
+            st.caption(f"This uses {_app_timezone().key}. Enter one meeting time only.")
         display_name = st.text_input("Agent name", value="Meera")
         passcode = st.text_input("Passcode / token", placeholder="Optional for Teams, required for Zoom")
         voice_mode = st.checkbox("Enable conversation mode after join")
@@ -250,7 +250,9 @@ with tab_meeting:
                     raise ValueError("Please choose a quick time slot.")
                 join_time_value = selected_quick_slot
             else:
-                join_time_value = _combine_join_datetime(join_date, join_clock)
+                join_time_value = _parse_join_time(join_time_input)
+                if join_time_value.tzinfo is None:
+                    join_time_value = join_time_value.replace(tzinfo=_app_timezone())
             payload = _build_job_payload(
                 kind="meeting",
                 meeting_link=meeting_link,
