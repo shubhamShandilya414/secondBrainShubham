@@ -88,13 +88,34 @@ def _build_context_config_from_env():
     )
 
 
-def _write_context_brief(job_id: str) -> str:
+def _write_context_brief(job_id: str, persona: str = "", call_type: str = "") -> str:
     from work_context import build_work_context_brief
 
     context_dir = ROOT / "context_briefs"
-    brief_path = build_work_context_brief(_build_context_config_from_env(), context_dir)
+    config = _build_context_config_from_env()
+    config = config.__class__(
+        github_repos=config.github_repos,
+        jira_base_url=config.jira_base_url,
+        jira_project_key=config.jira_project_key,
+        jira_jql=config.jira_jql,
+        github_token=config.github_token,
+        jira_email=config.jira_email,
+        jira_api_token=config.jira_api_token,
+        persona=persona,
+        call_type=call_type,
+        max_prs_per_repo=config.max_prs_per_repo,
+        max_comments_per_item=config.max_comments_per_item,
+        max_jira_issues=config.max_jira_issues,
+    )
+    brief_path = build_work_context_brief(config, context_dir)
     print(f"[Worker] Job {job_id}: wrote context brief to {brief_path}")
     return str(brief_path)
+
+
+def _is_bug_fix_context(job: dict[str, Any]) -> bool:
+    persona = str(job.get("persona", "")).strip().lower()
+    call_type = str(job.get("call_type", "")).strip().upper()
+    return persona == "software developer" and call_type == "BUG FIX CALL"
 
 
 def _submit_job(payload: dict[str, Any]) -> Path:
@@ -113,11 +134,23 @@ def _launch_meera(job: dict[str, Any], brief_path: str = "") -> None:
 
     kind = str(job.get("kind", "meeting")).strip()
     display_name = str(job.get("display_name", "Meera")).strip() or "Meera"
+    persona = str(job.get("persona", "Software Developer")).strip() or "Software Developer"
+    call_type = str(job.get("call_type", "BUG FIX CALL")).strip() or "BUG FIX CALL"
     voice_mode = bool(job.get("voice_mode", False))
     voice_device_index = job.get("voice_device_index")
     context_brief_path = str(job.get("context_brief_path", "")).strip() or brief_path
 
-    cmd = [sys.executable, "-u", str(AGENT_SCRIPT), "--display-name", display_name]
+    cmd = [
+        sys.executable,
+        "-u",
+        str(AGENT_SCRIPT),
+        "--display-name",
+        display_name,
+        "--persona",
+        persona,
+        "--call-type",
+        call_type,
+    ]
     if kind == "local_conversation":
         cmd.append("--local-conversation")
     else:
@@ -154,7 +187,7 @@ def _run_job_file(path: Path) -> None:
         kind = str(job.get("kind", "meeting")).strip()
         print(f"[Worker] Processing job {job_id} ({kind})")
 
-        if bool(job.get("context_mode", False)):
+        if bool(job.get("context_mode", False)) and _is_bug_fix_context(job):
             lead_minutes = int(job.get("context_lead_minutes", 15) or 15)
             join_time = _parse_iso_datetime(str(job.get("join_time", "")))
             context_time = join_time - dt.timedelta(minutes=max(1, lead_minutes))
@@ -163,9 +196,15 @@ def _run_job_file(path: Path) -> None:
                 wait_seconds = (context_time - now).total_seconds()
                 print(f"[Worker] Job {job_id}: waiting {wait_seconds:.0f}s for context prep")
                 time.sleep(wait_seconds)
-            brief_path = _write_context_brief(job_id)
+            brief_path = _write_context_brief(
+                job_id,
+                str(job.get("persona", "")).strip(),
+                str(job.get("call_type", "")).strip(),
+            )
             job["context_brief_path"] = brief_path
             claimed.write_text(json.dumps(job, indent=2), encoding="utf-8")
+        elif bool(job.get("context_mode", False)):
+            print(f"[Worker] Job {job_id}: skipping context load because persona is not configured for it.")
 
         join_time = job.get("join_time")
         if join_time:

@@ -50,6 +50,8 @@ class MeetingConfig:
     headless: bool = False
     browser: str = "chromium"
     site: str = "teams"
+    persona: str = "Software Developer"
+    call_type: str = "BUG FIX CALL"
     voice_mode: bool = False
     announce_join: bool = False
     voice_device_index: int | None = None
@@ -77,6 +79,14 @@ class MeetingJoinAgent:
 
     def _log(self, message: str) -> None:
         print(f"[Meera] {message}", flush=True)
+
+    def _is_bug_fix_persona(self) -> bool:
+        persona = self.config.persona.strip().lower()
+        call_type = self.config.call_type.strip().upper()
+        return persona == "software developer" and call_type in {"BUG CALL", "BUG FIX CALL"}
+
+    def _persona_not_configured_reply(self) -> str:
+        return "Right now I’m only configured for Software Developer bug-fix calls."
 
     def join(self) -> None:
         if self.config.local_conversation_only:
@@ -656,6 +666,17 @@ class MeetingJoinAgent:
         if self._conversation_state.end_requested:
             return self._hangup_reminder_reply(normalized)
 
+        if not self._is_bug_fix_persona():
+            if self._looks_like_jira_intent(normalized) or self._looks_like_brief_intent(normalized):
+                return self._persona_not_configured_reply()
+            if self._looks_like_capability_question(normalized):
+                return self._capability_reply()
+            if any(word in normalized for word in {"hello", "hi", "hey"}):
+                return "Hi, I’m Meera."
+            if any(word in normalized for word in {"thanks", "thank you"}):
+                return "You’re welcome."
+            return "I’m only set up for bug-fix calls right now."
+
         if self._looks_like_partial_jira_key(normalized):
             return self._partial_jira_key_reply(normalized)
 
@@ -684,10 +705,13 @@ class MeetingJoinAgent:
             if followup_reply:
                 return followup_reply
 
+        if self._looks_like_jira_intent(normalized):
+            return self._partial_jira_key_reply(normalized)
+
         if self._looks_like_capability_question(normalized):
             return self._capability_reply()
 
-        if self._looks_like_context_request(normalized):
+        if self._looks_like_brief_intent(normalized):
             context_reply = self._context_brief_reply(normalized)
             if self._conversation_state.last_issue_key:
                 issue_followup = self._summarize_jira_issue_live(self._conversation_state.last_issue_key, normalized) or self._summarize_jira_issue(self._conversation_state.last_issue_key, normalized)
@@ -719,6 +743,12 @@ class MeetingJoinAgent:
         if not api_key:
             return ""
 
+        if not self._is_bug_fix_persona():
+            normalized = re.sub(r"[^a-z0-9\s]", " ", transcript.lower())
+            normalized = " ".join(normalized.split())
+            if self._looks_like_jira_intent(normalized) or self._looks_like_brief_intent(normalized):
+                return self._persona_not_configured_reply()
+
         normalized = re.sub(r"[^a-z0-9\s]", " ", transcript.lower())
         normalized = " ".join(normalized.split())
         if self._looks_like_end_call(normalized):
@@ -726,6 +756,12 @@ class MeetingJoinAgent:
             return self._end_call_reply(normalized)
         if self._conversation_state.end_requested:
             return self._hangup_reminder_reply(normalized)
+        if self._looks_like_non_jira_chitchat(normalized) and not self._looks_like_jira_intent(normalized):
+            if any(word in normalized for word in {"how are you", "how do you do"}):
+                return "I’m good. What are you working on?"
+            if any(word in normalized for word in {"thanks", "thank you"}):
+                return "You’re welcome."
+            return "Hey."
         if self._looks_like_partial_jira_key(normalized):
             return self._partial_jira_key_reply(normalized)
         if self._looks_like_acknowledgement_action(normalized):
@@ -740,6 +776,9 @@ class MeetingJoinAgent:
         ):
             issue_key = self._conversation_state.last_issue_key
             followup_issue = True
+
+        if not issue_key and self._looks_like_jira_intent(transcript.lower()):
+            return self._partial_jira_key_reply(transcript)
 
         structured_reply = ""
         if issue_key:
@@ -760,7 +799,7 @@ class MeetingJoinAgent:
             else:
                 structured_reply = self._default_bug_finder_reply(transcript)
 
-        if issue_key or followup_issue or self._looks_like_context_request(transcript) or self._is_followup_about_issue(transcript):
+        if issue_key or followup_issue or self._looks_like_brief_intent(transcript):
             if structured_reply:
                 self._update_conversation_state_from_reply(issue_key, structured_reply)
                 if issue_context and not self._conversation_state.last_issue_context:
@@ -877,10 +916,8 @@ class MeetingJoinAgent:
         if project_key and compact.startswith(project_key) and not re.search(r"\d", compact[len(project_key):]):
             return True
 
-        if len(compact) <= 5 and compact.isalpha():
-            return True
-
-        if len(compact) <= 8 and compact.isalnum() and not re.search(r"-\d+$", compact):
+        tokens = re.findall(r"[a-z0-9]+", text.lower())
+        if project_key and any(self._is_close_to_project_key(token, project_key) for token in tokens):
             return True
 
         return False
@@ -910,6 +947,18 @@ class MeetingJoinAgent:
         for token in tokens:
             normalized.append(spoken_digits.get(token, token))
         return "".join(normalized)
+
+    def _is_close_to_project_key(self, token: str, project_key: str) -> bool:
+        token = token.strip().lower()
+        project_key = project_key.strip().lower()
+        if not token or not project_key:
+            return False
+        if token == project_key:
+            return True
+        if len(token) != len(project_key):
+            return False
+        mismatches = sum(1 for left, right in zip(token, project_key) if left != right)
+        return mismatches <= 1
 
     def _end_call_reply(self, text: str) -> str:
         if any(word in text for word in {"bye", "goodbye"}):
@@ -1093,6 +1142,10 @@ class MeetingJoinAgent:
         if project_key and project_key in compact:
             return True
 
+        tokens = re.findall(r"[a-z0-9]+", text.lower())
+        if project_key and any(self._is_close_to_project_key(token, project_key) for token in tokens):
+            return True
+
         jira_words = {
             "jira",
             "ticket",
@@ -1117,6 +1170,8 @@ class MeetingJoinAgent:
         return any(phrase in text for phrase in jira_words)
 
     def _load_context_brief(self) -> str:
+        if not self._is_bug_fix_persona():
+            return ""
         path = (
             self.config.context_brief_path
             or os.environ.get("MEERA_CONTEXT_BRIEF_PATH", "").strip()
@@ -1193,22 +1248,10 @@ class MeetingJoinAgent:
         if not project_key:
             return ""
 
-        if compact.startswith(project_key):
-            issue_number = compact[len(project_key):]
-            if issue_number.isdigit():
-                return f"{project_key}-{int(issue_number)}"
-
-        compact_project = re.sub(r"[^A-Z0-9]", "", project_key)
-        if compact.startswith(compact_project):
-            issue_number = compact[len(compact_project):]
-            if issue_number.isdigit():
-                return f"{project_key}-{int(issue_number)}"
-
-        spaced_project = "".join(ch for ch in project_key if ch.isalnum())
-        if spaced_project and spaced_project in compact:
-            suffix = compact.split(spaced_project, 1)[1]
-            if suffix.isdigit():
-                return f"{project_key}-{int(suffix)}"
+        project_pattern = re.compile(rf"{re.escape(project_key)}[-\s]*([0-9]+)")
+        project_match = project_pattern.search(compact)
+        if project_match:
+            return f"{project_key}-{int(project_match.group(1))}"
 
         return ""
 
@@ -1227,6 +1270,16 @@ class MeetingJoinAgent:
         if highlights:
             return "Jira bug summary: " + "; ".join(highlights[:2])
         return ""
+
+    def _looks_like_brief_intent(self, text: str) -> bool:
+        if self._extract_jira_issue_key(text):
+            return True
+        if self._looks_like_jira_intent(text):
+            return True
+        return self._looks_like_context_request(text) or self._is_followup_about_issue(text)
+
+    def _looks_like_non_jira_chitchat(self, text: str) -> bool:
+        return any(word in text for word in {"hello", "hi", "hey", "how are you", "thanks", "thank you"})
 
     def _capability_reply(self) -> str:
         return (
@@ -1622,6 +1675,16 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         help="Meeting provider to use",
     )
     parser.add_argument(
+        "--persona",
+        default="Software Developer",
+        help="Persona to use for response routing",
+    )
+    parser.add_argument(
+        "--call-type",
+        default="BUG FIX CALL",
+        help="Call type to use for response routing",
+    )
+    parser.add_argument(
         "--browser",
         default="chromium",
         choices=["chromium", "firefox", "webkit"],
@@ -1665,6 +1728,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         headless=args.headless,
         browser=args.browser,
         site=args.site,
+        persona=args.persona,
+        call_type=args.call_type,
         voice_mode=args.voice_mode,
         voice_device_index=args.voice_device_index,
         announce_join=args.announce_join,

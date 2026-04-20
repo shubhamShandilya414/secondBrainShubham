@@ -92,6 +92,7 @@ In the Streamlit UI:
 - Paste a meeting link
 - Choose a join time in your local time zone
 - Enter a display name
+- Pick a persona and matching call type
 - Optionally enable `Meera conversation mode`
 - Download the job JSON or queue it locally
 
@@ -155,6 +156,20 @@ python meeting_agent.py \
 
 If you want Meera to prepare before the call, enable the context option in the
 UI. GitHub and Jira configuration live in `.env`, not in the form.
+
+The current persona flow includes:
+
+- `Software Developer` -> `BUG FIX CALL`
+- `Architect` -> `ARCHITECTURE CALL`
+- `Business Analyst` -> `REQUIREMENTS CALL`
+- `Sales` -> `SALES CALL`
+- `Marketing` -> `MARKETING CALL`
+
+Meera uses the selected persona and call type to shape the prep brief.
+
+Right now, only the `Software Developer -> BUG FIX CALL` path is wired for
+context loading. The other personas are visible in the UI but do not load
+context yet.
 
 Set these values in `.env`:
 

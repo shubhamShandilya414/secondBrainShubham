@@ -109,6 +109,8 @@ def _build_job_payload(
     voice_device_index: str,
     context_mode: bool,
     context_lead_minutes: str,
+    persona: str,
+    call_type: str,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "id": uuid.uuid4().hex[:10],
@@ -122,6 +124,8 @@ def _build_job_payload(
         "voice_device_index": int(voice_device_index) if voice_device_index.strip() else None,
         "context_mode": context_mode,
         "context_lead_minutes": max(1, int(context_lead_minutes or "15")),
+        "persona": persona.strip(),
+        "call_type": call_type.strip(),
         "context_brief_path": "",
         "created_at": dt.datetime.now().isoformat(timespec="seconds"),
     }
@@ -160,36 +164,52 @@ def _submit_to_remote_worker(payload: dict[str, object], worker_url: str) -> str
 
 st.set_page_config(page_title="The Second Brain", page_icon="🧠", layout="wide")
 st.title("The Second Brain")
-st.caption(f"The UI stays light. The worker on your machine actually joins calls and uses the microphone. Timezone: {_app_timezone().key}")
 
 with st.sidebar:
-    st.header("How it works")
-    st.markdown(
-        """
-        1. Fill the form here.
-        2. Download the job JSON or queue it locally.
-        3. Run `worker.py` on the machine that has the browser and mic.
-        4. The worker launches Meera at the right time.
-        """
-    )
-    st.markdown(
-        """
-        **Important:** Streamlit Cloud cannot control your microphone or browser directly.
-        Keep the worker on a local machine, VM, or server with GUI access.
-        """
-    )
     worker_url = st.text_input(
-        "Worker URL (ngrok)",
+        "Worker endpoint",
         value=_get_setting("MEERA_WORKER_URL", ""),
-        help="Paste the public ngrok URL for your local worker, for example https://abcd-1234.ngrok-free.app",
     )
     st.caption(f"App timezone: {_app_timezone().key}")
     st.caption(f"Current app time: {_now_local().strftime('%Y-%m-%d %H:%M:%S %Z')}")
 
 tab_meeting, tab_local = st.tabs(["Schedule meeting", "Local conversation"])
 
+PERSONA_OPTIONS = [
+    "Software Developer",
+    "Architect",
+    "Business Analyst",
+    "Sales",
+    "Marketing",
+]
+CALL_TYPES_BY_PERSONA = {
+    "Software Developer": ["BUG FIX CALL"],
+    "Architect": ["ARCHITECTURE CALL"],
+    "Business Analyst": ["REQUIREMENTS CALL"],
+    "Sales": ["SALES CALL"],
+    "Marketing": ["MARKETING CALL"],
+}
+
+if "persona" not in st.session_state:
+    st.session_state.persona = PERSONA_OPTIONS[0]
+if "call_type" not in st.session_state:
+    st.session_state.call_type = CALL_TYPES_BY_PERSONA[st.session_state.persona][0]
+
+
+def _sync_call_type() -> None:
+    persona_value = st.session_state.get("persona", PERSONA_OPTIONS[0])
+    allowed = CALL_TYPES_BY_PERSONA.get(persona_value, [CALL_TYPES_BY_PERSONA[PERSONA_OPTIONS[0]][0]])
+    if st.session_state.get("call_type") not in allowed:
+        st.session_state.call_type = allowed[0]
+
 with tab_meeting:
     st.subheader("Schedule a meeting join")
+    persona = st.selectbox("Persona", PERSONA_OPTIONS, key="persona", on_change=_sync_call_type)
+    call_type = st.selectbox("Call type", CALL_TYPES_BY_PERSONA.get(persona, [CALL_TYPES_BY_PERSONA[PERSONA_OPTIONS[0]][0]]), key="call_type")
+    bug_fix_context_enabled = persona == "Software Developer" and call_type == "BUG FIX CALL"
+    build_job_enabled = bug_fix_context_enabled
+    if not bug_fix_context_enabled:
+        st.info("Currently only the Software Developer / BUG FIX CALL persona is configured for context loading. Other personas are visible, but their context is not wired yet.")
     with st.form("meeting_form"):
         meeting_link = st.text_input("Meeting link", placeholder="https://teams.live.com/meet/...")
         site = st.selectbox("Site", ["teams", "zoom"], index=0)
@@ -212,12 +232,22 @@ with tab_meeting:
         passcode = st.text_input("Passcode / token", placeholder="Optional for Teams, required for Zoom")
         voice_mode = st.checkbox("Enable conversation mode after join")
         voice_device_index = st.text_input("Microphone device index", placeholder="Leave blank for default")
-        context_mode = st.checkbox("Fetch GitHub + Jira context before the call")
+        context_mode = st.checkbox(
+            "Load persona context before the call",
+            value=bug_fix_context_enabled,
+            disabled=not bug_fix_context_enabled,
+        )
         context_lead_minutes = st.selectbox("Context lead time (minutes)", [1, 5, 10, 15, 30, 60], index=3)
-        submitted = st.form_submit_button("Build job")
+        if not build_job_enabled:
+            st.caption("Build job is only enabled for Software Developer / BUG FIX CALL right now.")
+        submitted = st.form_submit_button("Build job", disabled=not build_job_enabled)
 
     if submitted:
         try:
+            persona = st.session_state.get("persona", PERSONA_OPTIONS[0])
+            call_type = st.session_state.get("call_type", CALL_TYPES_BY_PERSONA[persona][0])
+            if persona != "Software Developer" or call_type != "BUG FIX CALL":
+                context_mode = False
             if join_time_mode == "Quick slots":
                 if selected_quick_slot is None:
                     raise ValueError("Please choose a quick time slot.")
@@ -235,6 +265,8 @@ with tab_meeting:
                 voice_device_index=voice_device_index,
                 context_mode=context_mode,
                 context_lead_minutes=str(context_lead_minutes),
+                persona=persona,
+                call_type=call_type,
             )
             queued = None
             remote_job_id = None
@@ -280,6 +312,8 @@ with tab_local:
                 voice_device_index=local_voice_device_index,
                 context_mode=False,
                 context_lead_minutes="1",
+                persona=PERSONA_OPTIONS[0],
+                call_type=CALL_TYPES_BY_PERSONA[PERSONA_OPTIONS[0]][0],
             )
             payload["context_brief_path"] = local_context_brief_path.strip()
             queued = None

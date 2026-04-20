@@ -34,6 +34,8 @@ class WorkContextConfig:
     github_token: str = ""
     jira_email: str = ""
     jira_api_token: str = ""
+    persona: str = ""
+    call_type: str = ""
     max_prs_per_repo: int = 5
     max_comments_per_item: int = 3
     max_jira_issues: int = 10
@@ -61,7 +63,7 @@ def build_work_context_brief(config: WorkContextConfig, output_dir: Path) -> Pat
 
     jira_section, linked_pr_refs = build_jira_section(config)
     github_section = build_github_section(config, linked_pr_refs)
-    prep_section = build_prep_section(github_section, jira_section)
+    prep_section = build_prep_section(github_section, jira_section, config.persona, config.call_type)
 
     if config.has_github or linked_pr_refs:
         lines.extend(github_section)
@@ -264,12 +266,52 @@ def _build_jira_jql(project_key: str, jira_jql: str) -> str:
     return f"project = {project_key} ORDER BY {order_part}"
 
 
-def build_prep_section(github_section: list[str], jira_section: list[str]) -> list[str]:
+def build_prep_section(
+    github_section: list[str],
+    jira_section: list[str],
+    persona: str = "",
+    call_type: str = "",
+) -> list[str]:
     lines = ["## Call Prep / Transcript Draft"]
     highlights = _collect_highlights(github_section + jira_section)
 
+    persona = persona.strip()
+    call_type = call_type.strip()
+    if persona or call_type:
+        lines.append("### Persona / Call Type")
+        if persona:
+            lines.append(f"- Persona: {persona}")
+        if call_type:
+            lines.append(f"- Call type: {call_type}")
+
     if highlights:
         lines.append("### What Meera Should Say")
+        persona_key = persona.lower()
+        call_key = call_type.upper()
+        if persona_key.startswith("software developer") and call_key in {"BUG CALL", "BUG FIX CALL"}:
+            lines.append(
+                "- I’m joining as a bug fixer, so I’ll focus on the issue, the comments, the blockers, and whether this should be closed or kept open."
+            )
+        elif persona_key.startswith("architect") and call_key == "ARCHITECTURE CALL":
+            lines.append(
+                "- I’m joining as an architect, so I’ll focus on design choices, tradeoffs, dependencies, and any risk in the current shape of the solution."
+            )
+        elif persona_key.startswith("business analyst") and call_key == "REQUIREMENTS CALL":
+            lines.append(
+                "- I’m joining as a business analyst, so I’ll focus on requirements, scope, edge cases, acceptance criteria, and anything that still needs clarification."
+            )
+        elif persona_key.startswith("sales") and call_key == "SALES CALL":
+            lines.append(
+                "- I’m joining for a sales call, so I’ll focus on pain points, business goals, objections, buying signals, and the next best step."
+            )
+        elif persona_key.startswith("marketing") and call_key == "MARKETING CALL":
+            lines.append(
+                "- I’m joining for a marketing call, so I’ll focus on the audience, positioning, campaign goals, channels, and success metrics."
+            )
+        elif persona:
+            lines.append(
+                "- This persona is not wired for context loading yet, so Meera will keep the call general."
+            )
         if _section_has_content(github_section):
             lines.append(
                 "- I reviewed the recent GitHub and Jira context and pulled out the most relevant updates."
