@@ -1,8 +1,8 @@
 # Meeting Join Agent
 
 A small Python agent that uses browser automation to join Zoom or Microsoft
-Teams meetings, plus a lightweight scheduler UI for running joins in the
-background.
+Teams meetings, plus a lightweight scheduler UI and a Streamlit front end for
+planning jobs.
 
 ## What it does
 
@@ -79,28 +79,59 @@ python meeting_agent.py \
   --display-name "Your Name"
 ```
 
-## Scheduler UI
+## Streamlit Front End
 
-Start the local scheduler UI with:
+Start the Streamlit front end with:
 
 ```bash
-python scheduler_web.py
+streamlit run streamlit_app.py
 ```
 
-In the UI:
+In the Streamlit UI:
 
 - Paste a meeting link
 - Choose a join time in your local time zone
 - Enter a display name
 - Optionally enable `Meera conversation mode`
-- Click `Schedule join`
+- Download the job JSON or queue it locally
 
-The UI runs in your browser and keeps the scheduler active in the background.
+The Streamlit app is the front end only. It prepares the job spec, but a local
+worker must actually launch the browser and microphone session.
+
+If you want Streamlit Cloud to talk to your local worker, expose the worker
+with ngrok and set `MEERA_WORKER_URL` in `.env` or in Streamlit secrets.
+
+## Local Worker
+
+Run the worker on the machine that has browser and microphone access:
+
+```bash
+python worker.py --serve --port 8765
+```
+
+The worker watches `streamlit_jobs/inbox/` for JSON job files, waits until the
+scheduled time, and launches `meeting_agent.py` locally.
+
+To expose that worker over ngrok:
+
+```bash
+ngrok http 8765
+```
+
+Then copy the public ngrok URL into `MEERA_WORKER_URL`:
+
+```bash
+MEERA_WORKER_URL=https://your-ngrok-url.ngrok-free.app
+```
+
+When you submit a job from Streamlit, the app will POST it to
+`$MEERA_WORKER_URL/jobs`. The worker writes it into its local queue and then
+processes it on the machine that can actually join the call.
 
 ## Local Conversation
 
 If you want to talk to Meera without joining a meeting, use the local
-conversation panel in the UI.
+conversation panel in the Streamlit front end.
 
 What it does:
 
@@ -123,7 +154,7 @@ python meeting_agent.py \
 ## Work Context Briefing
 
 If you want Meera to prepare before the call, enable the context option in the
-UI. GitHub and Jira configuration now live in `.env`, not in the form.
+UI. GitHub and Jira configuration live in `.env`, not in the form.
 
 Set these values in `.env`:
 
@@ -144,7 +175,7 @@ Meera will then:
 - write a Markdown prep brief into `context_briefs/`
 - launch the meeting agent after the prep window
 
-Set these environment variables before running the scheduler:
+Set these environment variables before running the worker:
 
 ```bash
 GITHUB_TOKEN="your_github_token"
@@ -158,6 +189,13 @@ JIRA_JQL="project = ABC ORDER BY updated DESC"
 
 If you use GitHub or Jira through a single account, these values can stay in
 your shell environment or `.env`, and Meera will reuse them each time.
+
+### Deployment note
+
+Streamlit is a good front end for this project, but it cannot directly run the
+browser automation or microphone loop on Streamlit Cloud. Keep the worker on a
+local machine, VM, or server with GUI/audio access. The Streamlit app can
+export the job JSON so the worker can pick it up.
 
 ## Voice Interaction
 

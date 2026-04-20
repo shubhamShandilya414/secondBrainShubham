@@ -863,7 +863,10 @@ class MeetingJoinAgent:
         return any(phrase in text for phrase in phrases)
 
     def _looks_like_partial_jira_key(self, text: str) -> bool:
-        compact = re.sub(r"[^a-z0-9]", "", text.lower())
+        if self._extract_jira_issue_key(text):
+            return False
+
+        compact = self._normalize_spoken_jira_text(text)
         project_key = os.environ.get("JIRA_PROJECT_KEY", "").strip().lower()
         if not compact:
             return False
@@ -885,6 +888,28 @@ class MeetingJoinAgent:
     def _partial_jira_key_reply(self, text: str) -> str:
         project_key = os.environ.get("JIRA_PROJECT_KEY", "").strip() or "the project key"
         return f"I need the full ticket key, like {project_key}-18, to look it up."
+
+    def _normalize_spoken_jira_text(self, text: str) -> str:
+        spoken_digits = {
+            "zero": "0",
+            "oh": "0",
+            "one": "1",
+            "two": "2",
+            "three": "3",
+            "four": "4",
+            "for": "4",
+            "five": "5",
+            "six": "6",
+            "seven": "7",
+            "eight": "8",
+            "nine": "9",
+            "ten": "10",
+        }
+        tokens = re.findall(r"[a-z0-9]+", text.lower())
+        normalized: list[str] = []
+        for token in tokens:
+            normalized.append(spoken_digits.get(token, token))
+        return "".join(normalized)
 
     def _end_call_reply(self, text: str) -> str:
         if any(word in text for word in {"bye", "goodbye"}):
@@ -1163,7 +1188,7 @@ class MeetingJoinAgent:
         if explicit:
             return explicit.group(1)
 
-        compact = re.sub(r"[^A-Z0-9]", "", upper_text)
+        compact = self._normalize_spoken_jira_text(upper_text).upper()
         project_key = os.environ.get("JIRA_PROJECT_KEY", "").strip().upper()
         if not project_key:
             return ""
