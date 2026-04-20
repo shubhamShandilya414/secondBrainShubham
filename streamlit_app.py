@@ -154,7 +154,7 @@ def _submit_to_remote_worker(payload: dict[str, object], worker_url: str) -> str
 
 st.set_page_config(page_title="The Second Brain", page_icon="🧠", layout="wide")
 st.title("The Second Brain")
-    st.caption(f"The UI stays light. The worker on your machine actually joins calls and uses the microphone. Timezone: {_app_timezone().key}")
+st.caption(f"The UI stays light. The worker on your machine actually joins calls and uses the microphone. Timezone: {_app_timezone().key}")
 
 with st.sidebar:
     st.header("How it works")

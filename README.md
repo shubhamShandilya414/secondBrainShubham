@@ -165,6 +165,7 @@ Set these values in `.env`:
 - `JIRA_JQL`, like `project = ABC ORDER BY updated DESC`
 - `JIRA_EMAIL`
 - `JIRA_API_TOKEN`
+- `MEERA_TIMEZONE`, like `Asia/Kolkata`
 
 Meera will then:
 
@@ -189,6 +190,10 @@ JIRA_JQL="project = ABC ORDER BY updated DESC"
 
 If you use GitHub or Jira through a single account, these values can stay in
 your shell environment or `.env`, and Meera will reuse them each time.
+
+If Streamlit shows the wrong time zone, set `MEERA_TIMEZONE` explicitly in
+`.env` or Streamlit secrets. Streamlit Cloud often runs in UTC, so this setting
+keeps the schedule aligned with your local time.
 
 ### Deployment note
 
