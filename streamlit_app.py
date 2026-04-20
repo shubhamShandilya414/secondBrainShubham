@@ -64,12 +64,18 @@ def _parse_join_time(value: str) -> dt.datetime:
     value = value.strip()
     if not value:
         raise ValueError("Join time is required")
+    try:
+        parsed = dt.datetime.fromisoformat(value)
+        if parsed.tzinfo is not None:
+            return parsed
+    except ValueError:
+        pass
     for fmt in ("%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M"):
         try:
             return dt.datetime.strptime(value, fmt)
         except ValueError:
             pass
-    raise ValueError("Use a time like 2026-04-20T18:30")
+    raise ValueError("Use a time like 2026-04-20T18:30 or a full ISO time like 2026-04-20T18:30:00+05:30")
 
 
 def _combine_join_datetime(join_date: dt.date, join_time: dt.time) -> dt.datetime:
