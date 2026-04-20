@@ -11,6 +11,7 @@ import json
 import os
 import uuid
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from env_utils import load_env_file
 
@@ -47,6 +48,18 @@ def _get_setting(name: str, default: str = "") -> str:
     return default
 
 
+def _app_timezone() -> ZoneInfo:
+    tz_name = _get_setting("MEERA_TIMEZONE", "Asia/Kolkata")
+    try:
+        return ZoneInfo(tz_name)
+    except Exception:
+        return ZoneInfo("UTC")
+
+
+def _now_local() -> dt.datetime:
+    return dt.datetime.now(_app_timezone())
+
+
 def _parse_join_time(value: str) -> dt.datetime:
     value = value.strip()
     if not value:
@@ -60,11 +73,11 @@ def _parse_join_time(value: str) -> dt.datetime:
 
 
 def _combine_join_datetime(join_date: dt.date, join_time: dt.time) -> dt.datetime:
-    return dt.datetime.combine(join_date, join_time.replace(second=0, microsecond=0))
+    return dt.datetime.combine(join_date, join_time.replace(second=0, microsecond=0), tzinfo=_app_timezone())
 
 
 def _quick_join_slots(count: int = 10, step_minutes: int = 2) -> list[tuple[str, dt.datetime]]:
-    now = dt.datetime.now().replace(second=0, microsecond=0)
+    now = _now_local().replace(second=0, microsecond=0)
     remainder = now.minute % step_minutes
     if remainder == 0:
         start = now + dt.timedelta(minutes=step_minutes)
@@ -141,7 +154,7 @@ def _submit_to_remote_worker(payload: dict[str, object], worker_url: str) -> str
 
 st.set_page_config(page_title="The Second Brain", page_icon="🧠", layout="wide")
 st.title("The Second Brain")
-st.caption("The UI stays light. The worker on your machine actually joins calls and uses the microphone.")
+    st.caption(f"The UI stays light. The worker on your machine actually joins calls and uses the microphone. Timezone: {_app_timezone().key}")
 
 with st.sidebar:
     st.header("How it works")
@@ -164,6 +177,8 @@ with st.sidebar:
         value=_get_setting("MEERA_WORKER_URL", ""),
         help="Paste the public ngrok URL for your local worker, for example https://abcd-1234.ngrok-free.app",
     )
+    st.caption(f"App timezone: {_app_timezone().key}")
+    st.caption(f"Current app time: {_now_local().strftime('%Y-%m-%d %H:%M:%S %Z')}")
 
 tab_meeting, tab_local = st.tabs(["Schedule meeting", "Local conversation"])
 
@@ -181,12 +196,12 @@ with tab_meeting:
             selected_quick_slot = quick_slots[quick_slot_labels.index(slot_label)][1]
             st.caption("These are local-time slots starting from the next available 2-minute boundary.")
         else:
-            join_date = st.date_input("Join date", value=dt.date.today())
+            join_date = st.date_input("Join date", value=_now_local().date())
             join_clock = st.time_input(
                 "Join time",
-                value=(dt.datetime.now() + dt.timedelta(minutes=30)).time().replace(second=0, microsecond=0),
+                value=(_now_local() + dt.timedelta(minutes=30)).time().replace(second=0, microsecond=0),
             )
-            st.caption("This uses your local time zone.")
+            st.caption(f"This uses {_app_timezone().key}.")
         display_name = st.text_input("Agent name", value="Meera")
         passcode = st.text_input("Passcode / token", placeholder="Optional for Teams, required for Zoom")
         voice_mode = st.checkbox("Enable conversation mode after join")
@@ -207,7 +222,7 @@ with tab_meeting:
                 kind="meeting",
                 meeting_link=meeting_link,
                 site=site,
-                join_time=join_time_value.isoformat(timespec="seconds"),
+                join_time=join_time_value.astimezone(dt.timezone.utc).isoformat(timespec="seconds"),
                 display_name=display_name,
                 passcode=passcode,
                 voice_mode=voice_mode,
@@ -252,7 +267,7 @@ with tab_local:
                 kind="local_conversation",
                 meeting_link="",
                 site="teams",
-                join_time=dt.datetime.now().isoformat(timespec="seconds"),
+                join_time=_now_local().astimezone(dt.timezone.utc).isoformat(timespec="seconds"),
                 display_name=local_display_name,
                 passcode="",
                 voice_mode=local_voice_mode,

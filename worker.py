@@ -18,6 +18,7 @@ import time
 import argparse
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from env_utils import load_env_file
 
@@ -50,7 +51,10 @@ def _parse_iso_datetime(value: str) -> dt.datetime:
     value = value.strip()
     if not value:
         raise ValueError("Missing join_time")
-    return dt.datetime.fromisoformat(value)
+    parsed = dt.datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=ZoneInfo(os.environ.get("MEERA_TIMEZONE", "Asia/Kolkata")))
+    return parsed
 
 
 def _load_job(path: Path) -> dict[str, Any]:
@@ -154,7 +158,7 @@ def _run_job_file(path: Path) -> None:
             lead_minutes = int(job.get("context_lead_minutes", 15) or 15)
             join_time = _parse_iso_datetime(str(job.get("join_time", "")))
             context_time = join_time - dt.timedelta(minutes=max(1, lead_minutes))
-            now = dt.datetime.now()
+            now = dt.datetime.now(join_time.tzinfo or ZoneInfo(os.environ.get("MEERA_TIMEZONE", "Asia/Kolkata")))
             if context_time > now:
                 wait_seconds = (context_time - now).total_seconds()
                 print(f"[Worker] Job {job_id}: waiting {wait_seconds:.0f}s for context prep")
@@ -166,7 +170,8 @@ def _run_job_file(path: Path) -> None:
         join_time = job.get("join_time")
         if join_time:
             scheduled_time = _parse_iso_datetime(str(join_time))
-            wait_seconds = (scheduled_time - dt.datetime.now()).total_seconds()
+            now = dt.datetime.now(scheduled_time.tzinfo or ZoneInfo(os.environ.get("MEERA_TIMEZONE", "Asia/Kolkata")))
+            wait_seconds = (scheduled_time - now).total_seconds()
             if wait_seconds > 0:
                 print(f"[Worker] Job {job_id}: waiting {wait_seconds:.0f}s for join time")
                 time.sleep(wait_seconds)
