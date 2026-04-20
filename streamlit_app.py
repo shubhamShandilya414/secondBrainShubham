@@ -166,14 +166,11 @@ st.set_page_config(page_title="The Second Brain", page_icon="🧠", layout="wide
 st.title("The Second Brain")
 
 with st.sidebar:
-    worker_url = st.text_input(
-        "Worker endpoint",
-        value=_get_setting("MEERA_WORKER_URL", ""),
-    )
     st.caption(f"App timezone: {_app_timezone().key}")
     st.caption(f"Current app time: {_now_local().strftime('%Y-%m-%d %H:%M:%S %Z')}")
 
 tab_meeting, tab_local = st.tabs(["Schedule meeting", "Local conversation"])
+worker_url = _get_setting("MEERA_WORKER_URL", "")
 
 PERSONA_OPTIONS = [
     "Software Developer",
